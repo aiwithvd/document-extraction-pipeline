@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
 
+    # MinerU
+    MINERU_MODELS_BUCKET: str = "mineru-models"
+    MINERU_MODELS_DIR: str = "/app/models/mineru"
+    MINERU_DEVICE: str = "cuda"
+
     @field_validator("OPENAI_API_KEY")
     @classmethod
     def validate_openai_key(cls, v: str, info: object) -> str:
