@@ -18,7 +18,7 @@ The interactive Swagger UI is available at `http://localhost:8000/docs` once the
 
 - **Upload** PDF or image files (PNG, JPG, TIFF) up to 10 MB
 - **Async processing** via Celery workers — no blocking API calls
-- **OCR** with Tesseract + pdf2image
+- **Document extraction** with [MinerU](https://github.com/opendatalab/MinerU) (`vlm-auto-engine`) — preserves tables, headers, and multi-column layouts as structured Markdown
 - **LLM extraction** using OpenAI (`gpt-4o-mini`) or Ollama (local models)
 - **Structured output** for three document types: Invoice, Legal, ESG
 - **JWT authentication** with per-user rate limiting (10 req/min)
@@ -50,13 +50,28 @@ JWT_SECRET_KEY=your-strong-random-secret-here
 OPENAI_API_KEY=sk-...         # if using OpenAI
 ```
 
-### 2. Start all services
+### 2. Bootstrap MinerU models (first time only)
+
+MinerU requires ~15 GB of model weights. Download them from HuggingFace and push to MinIO so all workers can pull them at startup:
+
+```bash
+# Install dependencies first (or use a temporary venv)
+pip install -r requirements.txt
+
+# Start MinIO only, then run the bootstrap
+docker-compose up minio minio-models-init -d
+python scripts/init_mineru_models.py --local-dir /tmp/mineru_models
+```
+
+This only needs to be done **once**. Models are stored in the `mineru-models` MinIO bucket and synced to each worker container automatically on every subsequent start.
+
+### 3. Start all services
 
 ```bash
 docker-compose up --build
 ```
 
-This starts: FastAPI (port 8000), Celery worker, PostgreSQL, Redis, MinIO (port 9000 / console 9001). Database migrations run automatically on API startup.
+This starts: FastAPI (port 8000), Celery worker, PostgreSQL, Redis, MinIO (port 9000 / console 9001). Database migrations run automatically on API startup. The worker pulls MinerU models from MinIO before accepting jobs.
 
 ### 3. Verify
 
@@ -233,24 +248,28 @@ app/
     job.py             # JobStatus, DocumentType, JobResponse
     documents.py       # InvoiceExtraction, LegalExtraction, ESGExtraction
   services/
-    ocr_service.py     # Tesseract OCR (async via executor)
+    mineru_service.py  # MinerU extraction (vlm-auto-engine, async via executor)
     llm_service.py     # OpenAI / Ollama extraction + retry + confidence
     job_service.py     # Job CRUD
   workers/
     tasks.py           # process_document Celery task
     sync_db.py         # Sync DB session for Celery
   utils/
-    text_processing.py # clean_text(), chunk_text()
+    text_processing.py # clean_markdown() for MinerU output, chunk_text()
+    model_sync.py      # push/pull/ensure_models — MinIO ↔ local volume sync
     validators.py      # File type (magic bytes), size, storage key
     prompts.py         # LLM prompt templates
     exceptions.py      # Custom exception hierarchy
 alembic/               # DB migrations
+scripts/
+  init_mineru_models.py  # One-time: download MinerU models → push to MinIO
 tests/
   unit/                # Isolated unit tests (mocked externals)
   integration/         # API-level tests (mocked DB + storage)
 docker/
   api/Dockerfile
   worker/Dockerfile
+  worker/entrypoint.sh # Model sync + Celery start
 docker-compose.yml
 ```
 
@@ -263,7 +282,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 
 # Start infrastructure
-docker-compose up postgres redis minio minio-init -d
+docker-compose up postgres redis minio minio-init minio-models-init -d
 
 # Copy and edit env
 cp .env.example .env
@@ -314,6 +333,9 @@ pytest tests/integration/ -v
 | `MAX_FILE_SIZE_BYTES` | `10485760` | 10 MB limit |
 | `RATE_LIMIT_PER_MINUTE` | `10` | Per-user upload limit |
 | `MINIO_BUCKET` | `documents` | Storage bucket name |
+| `MINERU_MODELS_BUCKET` | `mineru-models` | MinIO bucket for MinerU model weights |
+| `MINERU_MODELS_DIR` | `/app/models/mineru` | Local path where models are cached |
+| `MINERU_DEVICE` | `cuda` | `cuda` or `cpu` — auto-detected by vlm-auto-engine |
 | `ENVIRONMENT` | `production` | `development` enables CORS + verbose logs |
 
 ---
