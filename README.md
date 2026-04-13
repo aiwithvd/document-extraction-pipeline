@@ -4,7 +4,7 @@ A production-ready async system that extracts structured data from invoices, leg
 
 ## Architecture
 
-![Architecture](docs/images/architecture.png)
+![Architecture](docs/images/architecture.svg)
 
 ## API Documentation
 
