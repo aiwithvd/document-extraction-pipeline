@@ -11,9 +11,9 @@ from app.core.logging import configure_logging
 from app.core.storage import StorageClient
 from app.models.job import Job
 from app.services.llm_service import LLMExtractionService
-from app.services.ocr_service import OCRService
+from app.services.mineru_service import mineru_service
 from app.utils.exceptions import DocumentExtractionError
-from app.utils.text_processing import clean_text
+from app.utils.text_processing import clean_markdown
 from app.workers.sync_db import get_sync_db
 
 configure_logging()
@@ -33,7 +33,7 @@ def _get_job(db, job_id: uuid.UUID) -> Job | None:
     reject_on_worker_lost=True,
 )
 def process_document(self, job_id: str, storage_key: str, document_type: str) -> dict:
-    """Full document extraction pipeline: download → OCR → LLM → save result."""
+    """Full document extraction pipeline: download → MinerU → LLM → save result."""
     _job_id = uuid.UUID(job_id)
     log = logger.bind(job_id=job_id, document_type=document_type)
     log.info("Starting document processing")
@@ -60,16 +60,15 @@ def process_document(self, job_id: str, storage_key: str, document_type: str) ->
         storage = StorageClient()
         file_bytes: bytes = asyncio.run(storage.download_file(storage_key))
 
-        # Step 3: OCR
-        log.info("Running OCR")
-        ocr = OCRService()
+        # Step 3: MinerU extraction
+        log.info("Running MinerU extraction")
         with get_sync_db() as db:
             job = _get_job(db, _job_id)
             mime_type = job.mime_type if job else "application/pdf"
 
-        raw_text: str = asyncio.run(ocr.extract_text(file_bytes, mime_type))
-        cleaned_text = clean_text(raw_text)
-        log.info("OCR complete", text_length=len(cleaned_text))
+        raw_text: str = asyncio.run(mineru_service.extract_text(file_bytes, mime_type))
+        cleaned_text = clean_markdown(raw_text)
+        log.info("MinerU extraction complete", text_length=len(cleaned_text))
 
         # Step 4: save OCR text
         with get_sync_db() as db:

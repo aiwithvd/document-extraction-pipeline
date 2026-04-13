@@ -42,12 +42,28 @@ services:
       context: .
       dockerfile: docker/worker/Dockerfile
     <<: *app-env
+    environment:
+      MINERU_MODELS_DIR: /app/models/mineru
+      MINERU_MODELS_BUCKET: ${MINERU_MODELS_BUCKET:-mineru-models}
+      MINERU_DEVICE: ${MINERU_DEVICE:-cuda}
+    volumes:
+      - mineru_models:/app/models/mineru
     depends_on:
       api:
         condition: service_healthy
       redis:
         condition: service_started
+      minio-models-init:
+        condition: service_completed_successfully
     restart: unless-stopped
+    # Uncomment for GPU workers (requires NVIDIA Container Toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
@@ -104,7 +120,21 @@ services:
         echo 'Bucket ready.';
       "
 
+  # ── MinIO MinerU models bucket init ───────────────────────────────────────
+  minio-models-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+        sleep 3;
+        mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-minioadmin} ${MINIO_SECRET_KEY:-minioadmin};
+        mc mb local/${MINERU_MODELS_BUCKET:-mineru-models} --ignore-existing;
+        echo 'MinerU models bucket ready.';
+      "
+
 volumes:
   postgres_data:
   redis_data:
   minio_data:
+  mineru_models:

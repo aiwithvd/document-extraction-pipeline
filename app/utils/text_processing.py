@@ -66,6 +66,23 @@ def _find_sentence_boundary(text: str, search_start: int, search_end: int) -> in
     return search_start + last.end()
 
 
+def clean_markdown(raw: str) -> str:
+    """Light normalisation for Markdown output from MinerU.
+
+    Preserves Markdown structure — tables, headers, lists, horizontal rules,
+    code blocks. Only removes clearly invalid content: null bytes, form-feeds,
+    and excessive consecutive blank lines.
+
+    Do NOT use clean_text() on MinerU output — its noise-line regex strips
+    Markdown table separator rows (|---|---|) and horizontal rules.
+    """
+    text = unicodedata.normalize("NFC", raw)
+    text = text.replace("\x00", "").replace("\f", "\n")
+    # Collapse runs of 4+ newlines to 3 (preserve intentional paragraph spacing)
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+    return text.strip()
+
+
 def sanitize_filename(filename: str) -> str:
     """Return a safe filename without path components or special characters."""
     name = Path(filename).name
